@@ -89,6 +89,12 @@ let playing = false;
 let touching = false;
 let hits = 0;
 let progress = 0; // which point of the wire the ring has reached
+// Phones and tablets use touch; laptops use mouse and keyboard.
+const isTouch = matchMedia('(pointer: coarse)').matches;
+if (isTouch) document.body.classList.add('touch');
+function lockMouse() {
+  if (!isTouch) renderer.domElement.requestPointerLock();
+}
 let mode = 'walk'; // 'walk' = look around, 'ring' = play at the table
 const keys = {};
 const walkPosition = new THREE.Vector3();
@@ -103,12 +109,12 @@ function toggleTable() {
     walkRotation.copy(camera.rotation);
     camera.position.set(0, 1.6, 1.1);
     camera.lookAt(0, 1.3, 0);
-    message.textContent = 'Guide the ring to the right end. E: step back';
+    message.textContent = isTouch ? 'Drag to guide the ring to the right end.' : 'Guide the ring to the right end. E: step back';
   } else if (mode === 'ring') {
     mode = 'walk';
     camera.position.copy(walkPosition);
     camera.rotation.copy(walkRotation);
-    if (playing) message.textContent = 'Walk to the table and press E.';
+    if (playing) message.textContent = isTouch ? 'Walk to the table and tap Table.' : 'Walk to the table and press E.';
   }
 }
 
@@ -167,12 +173,12 @@ startButton.addEventListener('click', () => {
   startButton.textContent = 'Restart';
   startButton.blur();
   if (mode === 'ring') toggleTable();
-  message.textContent = 'Walk to the table and press E.';
-  renderer.domElement.requestPointerLock();
+  message.textContent = isTouch ? 'Walk to the table and tap Table.' : 'Walk to the table and press E.';
+  lockMouse();
 });
 
 renderer.domElement.addEventListener('click', () => {
-  if (playing) renderer.domElement.requestPointerLock();
+  if (playing) lockMouse();
 });
 
 // ---------- 6. Movement and collision ----------
@@ -233,6 +239,47 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
+// ---------- Touch controls ----------
+let finger = null; // the finger that is dragging on the 3D view
+const canvas = renderer.domElement;
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (!isTouch || finger) return;
+  finger = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!finger || e.pointerId !== finger.id) return;
+  const dx = e.clientX - finger.x;
+  const dy = e.clientY - finger.y;
+  finger.x = e.clientX;
+  finger.y = e.clientY;
+  if (mode === 'ring') {
+    move(dx * 0.002, -dy * 0.002, 0);
+  } else if (playing) {
+    camera.rotation.y -= dx * 0.005;
+    camera.rotation.x = THREE.MathUtils.clamp(camera.rotation.x - dy * 0.005, -1.4, 1.4);
+  }
+});
+for (const type of ['pointerup', 'pointercancel']) {
+  canvas.addEventListener(type, (e) => {
+    if (finger && e.pointerId === finger.id) finger = null;
+  });
+}
+
+// Buttons that act while held down.
+for (const button of document.querySelectorAll('[data-key]')) {
+  const key = button.dataset.key;
+  button.addEventListener('pointerdown', (e) => {
+    button.setPointerCapture(e.pointerId);
+    keys[key] = true;
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+    button.addEventListener(type, () => { keys[key] = false; });
+  }
+}
+document.querySelector('#table').addEventListener('click', toggleTable);
+
 // ---------- 7. Walk and draw every frame ----------
 const clock = new THREE.Clock();
 
@@ -251,6 +298,12 @@ function walk(seconds) {
 
 renderer.setAnimationLoop(() => {
   const seconds = Math.min(clock.getDelta(), 0.1);
-  if (mode === 'walk' && document.pointerLockElement) walk(seconds);
+  if (mode === 'walk' && (isTouch || document.pointerLockElement)) walk(seconds);
+  if (mode === 'ring') {
+    // Near / Far buttons on touch screens.
+    const depth = (keys.Near ? 1 : 0) - (keys.Far ? 1 : 0);
+    if (depth) move(0, 0, depth * 0.15 * seconds);
+  }
+  document.body.classList.toggle('at-table', mode === 'ring');
   renderer.render(scene, camera);
 });
