@@ -141,8 +141,27 @@ function buzz() {
   osc.stop(audio.currentTime + 0.2);
 }
 
+// One musical note: pitch in Hz, delay and length in seconds.
+function note(pitch, delay, length) {
+  const start = audio.currentTime + delay;
+  const osc = audio.createOscillator();
+  const gain = audio.createGain();
+  osc.type = 'triangle';
+  osc.frequency.value = pitch;
+  gain.gain.setValueAtTime(0.2, start);
+  gain.gain.exponentialRampToValueAtTime(0.001, start + length);
+  osc.connect(gain).connect(audio.destination);
+  osc.start(start);
+  osc.stop(start + length);
+}
+const startSound = () => { note(523, 0, 0.15); note(784, 0.12, 0.25); };
+const successSound = () =>
+  [523, 659, 784, 1047].forEach((pitch, i) => note(pitch, i * 0.14, 0.4));
+
 startButton.addEventListener('click', () => {
   audio ??= new AudioContext();
+  audio.resume();
+  startSound();
   reset();
   playing = true;
   startButton.textContent = 'Restart';
@@ -187,6 +206,7 @@ function move(dx, dy, dz) {
 
   if (progress >= 595) {
     playing = false;
+    successSound();
     message.textContent = `Success! You finished with ${hits} hit(s).`;
     document.exitPointerLock();
   }
